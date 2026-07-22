@@ -1,0 +1,61 @@
+import dotenv from "dotenv";
+import path from "path";
+import express from "express";
+import cors from "cors";
+import cookieParser from "cookie-parser";
+
+import corsOptions from "./config/cors";
+
+import authRoutes from "./routes/auth.routes";
+import smdRoutes from "./routes/smd.routes";
+import marketerRoutes from "./routes/marketer.routes";
+import customerRoutes from "./routes/customer.controller";
+import monthlyPayoutRoutes from "./routes/monthlyPayout.controller";
+import smdClosingRoutes from "./routes/smdClosing.routes";
+import linkedSmdCustomerRoutes from "./routes/linkedSmdCustomer";
+import userRoutes from "./routes/user.routes";
+import dealRoutes from "./routes/smdDeals.routes";
+import pdfRoutes from "./routes/pdf.routes";
+import marketerDashboardRoutes from "./routes/marketerDashboard.routes";
+import smdPaymentRoutes from "./routes/smdPayment.routes";
+import staffDashboardRoutes from "./routes/staffDashboard.routes";
+import adminDashboardRoutes from "./routes/adminDashboard.routes";
+import reception from "./routes/reception.routes";
+import forgotPasswordRoutes from "./routes/forgotPassword.routes";
+
+dotenv.config();
+
+export const app = express();
+
+// ✅ Middleware order matters
+app.use(express.json());
+app.use(cookieParser());
+app.use(cors(corsOptions));
+
+// ✅ Static uploads
+app.use("/uploads", express.static(path.join(__dirname, "..", "uploads")));
+
+// ✅ Routes
+app.use("/api/auth", authRoutes);
+app.use("/api/auth", forgotPasswordRoutes);
+app.use("/api", smdRoutes);
+app.use("/api", marketerRoutes);
+app.use("/api", customerRoutes);
+app.use("/api", monthlyPayoutRoutes);
+app.use("/api", smdClosingRoutes);
+app.use("/api", linkedSmdCustomerRoutes);
+app.use("/api", userRoutes);
+app.use("/api", dealRoutes);
+app.use("/api", pdfRoutes);
+app.use("/api", marketerDashboardRoutes);
+app.use("/api", smdPaymentRoutes);
+app.use("/api", staffDashboardRoutes);
+app.use("/api", adminDashboardRoutes);
+app.use("/api/reception", reception);
+
+app.get("/", (req, res) => {
+  res.send("Hello Ilman from Skyward Vision API!");
+});
+
+
+export default app;

@@ -1,0 +1,264 @@
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "mysql"
+}
+
+model customer_bank_accounts {
+  bank_account_id String    @id @default(uuid()) @db.Char(36)
+  customer_id     String    @db.Char(36)
+  bank_name       String?   @db.VarChar(255)
+  account_name    String?   @db.VarChar(255)
+  account_number  String?   @db.VarChar(255)
+  created_at      DateTime? @default(now()) @db.Timestamp(6)
+  customers       customers @relation(fields: [customer_id], references: [customer_id], onDelete: Cascade, onUpdate: NoAction, map: "fk_bank_customer")
+
+  @@index([customer_id], map: "idx_bank_customer")
+}
+
+model customer_heirs {
+  customer_heir_id String    @id @default(uuid()) @db.Char(36)
+  customer_id      String    @db.Char(36)
+  full_name        String?
+  cnic             String?
+  phone_number      String?
+  created_at       DateTime? @default(now()) @db.Timestamp(6)
+  customers        customers @relation(fields: [customer_id], references: [customer_id], onDelete: Cascade, onUpdate: NoAction, map: "fk_heir_customer")
+
+  @@index([customer_id], map: "idx_heir_customer")
+}
+
+/// NOTE: Postgres CHECK constraints on this table are not represented here.
+/// If any existed, re-create them via raw SQL in the MySQL migration.
+model customers {
+  customer_id                       String                   @id @default(uuid()) @db.Char(36)
+  user_id                           String                   @db.Char(36)
+  contact_number                    String?                  @db.VarChar(30)
+  city                              String?                  @db.VarChar(100)
+  address                           String?                  @db.Text
+  cnic                              String?                  @db.VarChar(20)
+  status                            String                   @default("active") @db.VarChar(30)
+  created_by                        String                   @db.Char(36)
+  created_at                        DateTime                 @default(now()) @db.Timestamp(6)
+  updated_at                        DateTime                 @default(now()) @db.Timestamp(6)
+  phone_number                      String?                  @db.VarChar(255)
+  marketer_id                       String?                  @db.Char(36)
+  father_name                       String?                  @default("")
+  customer_bank_accounts            customer_bank_accounts[]
+  customer_heirs                    customer_heirs[]
+  users_customers_created_byTousers users                    @relation("customers_created_byTousers", fields: [created_by], references: [user_id], onDelete: NoAction, onUpdate: NoAction, map: "fk_customer_created_by")
+  users_customers_user_idTousers    users                    @relation("customers_user_idTousers", fields: [user_id], references: [user_id], onDelete: Cascade, onUpdate: NoAction, map: "fk_customer_user")
+  marketers                         marketers?               @relation(fields: [marketer_id], references: [marketer_id], onUpdate: NoAction, map: "fk_customers_marketer")
+  smd_closings                      smd_closings[]
+
+  @@index([user_id], map: "idx_customers_user")
+  @@index([created_by], map: "idx_customers_created_by")
+  @@index([marketer_id], map: "idx_customers_marketer")
+}
+
+/// NOTE: Postgres CHECK constraints on this table are not represented here.
+model marketer_commissions {
+  commission_id String    @id @default(uuid()) @db.Char(36)
+  marketer_id   String    @db.Char(36)
+  smd_id        String    @db.Char(36)
+  amount        Decimal   @db.Decimal(12, 2)
+  month         DateTime  @db.Date
+  status        String?   @default("pending") @db.VarChar(50)
+  created_at    DateTime  @default(now()) @db.Timestamp(6)
+  marketers     marketers @relation(fields: [marketer_id], references: [marketer_id], onDelete: NoAction, onUpdate: NoAction, map: "fk_commission_marketer")
+  smds          smds      @relation(fields: [smd_id], references: [smd_id], onDelete: NoAction, onUpdate: NoAction, map: "fk_commission_smd")
+
+  @@index([marketer_id], map: "idx_commission_marketer")
+  @@index([smd_id], map: "idx_commission_smd")
+}
+
+model marketers {
+  marketer_id                       String                 @id @default(uuid()) @db.Char(36)
+  user_id                           String                 @db.Char(36)
+  commission_type                   String?                @default("percentage") @db.VarChar(20)
+  commission_value                  Decimal                @db.Decimal(10, 2)
+  status                            String?                @default("active") @db.VarChar(50)
+  created_by                        String                 @db.Char(36)
+  created_at                        DateTime               @default(now()) @db.Timestamp(6)
+  customers                         customers[]
+  marketer_commissions              marketer_commissions[]
+  users_marketers_created_byTousers users                  @relation("marketers_created_byTousers", fields: [created_by], references: [user_id], onDelete: NoAction, onUpdate: NoAction, map: "fk_marketer_created_by")
+  users_marketers_user_idTousers    users                  @relation("marketers_user_idTousers", fields: [user_id], references: [user_id], onDelete: Cascade, onUpdate: NoAction, map: "fk_marketer_user")
+
+  @@index([user_id], map: "idx_marketers_user")
+  @@index([created_by], map: "idx_marketers_created_by")
+}
+
+/// NOTE: Postgres CHECK constraints on this table are not represented here.
+model otps {
+  otp_id       String    @id @default(uuid()) @db.Char(36)
+  email        String    @db.VarChar(255)
+  otp          String    @db.VarChar(10)
+  purpose      String    @db.VarChar(50)
+  expires_at   DateTime  @db.Timestamp(6)
+  resend_count Int       @default(0)
+  attempts     Int       @default(0)
+  last_sent    DateTime  @default(now()) @db.Timestamp(6)
+  block_until  DateTime? @db.Timestamp(6)
+  created_at   DateTime  @default(now()) @db.Timestamp(6)
+}
+
+model roles {
+  role_id     String       @id @default(uuid()) @db.Char(36)
+  role_name   String       @db.VarChar(50)
+  description String?      @db.Text
+  created_at  DateTime     @default(now()) @db.Timestamp(6)
+  role_group  String?      @db.VarChar(20)
+  user_roles  user_roles[]
+  users       users[]
+}
+
+/// NOTE: Postgres CHECK constraints on this table are not represented here.
+model smd_closing_payments {
+  payment_id     String       @id @default(uuid()) @db.Char(36)
+  smd_closing_id String       @db.Char(36)
+  amount         Decimal      @db.Decimal(14, 2)
+  payment_date   DateTime     @default(now()) @db.Timestamp(6)
+  payment_method String?      @db.VarChar(50)
+  reference_no   String?      @db.VarChar(100)
+  notes          String?      @db.Text
+  recorded_by    String       @db.Char(36)
+  created_at     DateTime     @default(now()) @db.Timestamp(6)
+  smd_closings   smd_closings @relation(fields: [smd_closing_id], references: [smd_closing_id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@index([smd_closing_id], map: "idx_closing_payments_closing")
+}
+
+/// NOTE: Postgres CHECK constraints on this table are not represented here.
+/// `remaining_balance` was a Postgres DEFAULT expression referencing other
+/// columns (sell_price - amount_paid). MySQL does not allow column
+/// references inside a plain column DEFAULT — only inside a true
+/// GENERATED ALWAYS AS (...) column. Two options:
+///   1) Drop the DB-level default here and compute remaining_balance in
+///      application code whenever sell_price/amount_paid change.
+///   2) After `prisma migrate`, hand-edit the generated migration SQL to
+///      make it a real generated column, e.g.:
+///        `remaining_balance` DECIMAL(14,2) GENERATED ALWAYS AS
+///          (`sell_price` - `amount_paid`) STORED
+///      (Prisma will treat this field as a normal writable column unless
+///      you also mark it read-only in your app logic.)
+model smd_closings {
+  smd_closing_id       String                 @id @default(uuid()) @db.Char(36)
+  smd_id               String                 @db.Char(36)
+  customer_id          String                 @db.Char(36)
+  sell_price           Decimal                @db.Decimal(14, 2)
+  monthly_rent         Decimal                @db.Decimal(14, 2)
+  status               String                 @default("active") @db.VarChar(30)
+  closed_by            String                 @db.Char(36)
+  closed_at            DateTime               @default(now()) @db.Timestamp(6)
+  created_at           DateTime               @default(now()) @db.Timestamp(6)
+  updated_at           DateTime               @default(now()) @db.Timestamp(6)
+  share_percentage     Decimal?               @default(100.00) @db.Decimal(5, 2)
+  amount_paid          Decimal?               @default(0) @db.Decimal(14, 2)
+  deal_id              String?                @db.Char(36)
+  remaining_balance    Decimal?               @db.Decimal(14, 2) // see note above
+  smd_closing_payments smd_closing_payments[]
+  users                users                  @relation(fields: [closed_by], references: [user_id], onDelete: NoAction, onUpdate: NoAction, map: "fk_closing_admin")
+  customers            customers              @relation(fields: [customer_id], references: [customer_id], onDelete: NoAction, onUpdate: NoAction, map: "fk_closing_customer")
+  smds                 smds                   @relation(fields: [smd_id], references: [smd_id], onDelete: NoAction, onUpdate: NoAction, map: "fk_closing_smd")
+  smd_deals            smd_deals?             @relation(fields: [deal_id], references: [deal_id], onDelete: NoAction, onUpdate: NoAction)
+  smd_rent_payouts     smd_rent_payouts[]
+
+  @@index([smd_id], map: "idx_closings_smd")
+  @@index([customer_id], map: "idx_closings_customer")
+  @@index([closed_by], map: "idx_closings_closed_by")
+  @@index([deal_id], map: "idx_closings_deal")
+}
+
+model smd_rent_payouts {
+  payout_id      String       @id @default(uuid()) @db.Char(36)
+  smd_closing_id String       @db.Char(36)
+  payout_month   String       @db.VarChar(7)
+  amount         Decimal      @db.Decimal(12, 2)
+  status         String       @default("pending") @db.VarChar(30)
+  paid_by        String?      @db.Char(36)
+  paid_at        DateTime?    @db.Timestamp(6)
+  created_at     DateTime     @default(now()) @db.Timestamp(6)
+  smd_closings   smd_closings @relation(fields: [smd_closing_id], references: [smd_closing_id], onDelete: NoAction, onUpdate: NoAction, map: "fk_payout_closing")
+  users          users?       @relation(fields: [paid_by], references: [user_id], onDelete: NoAction, onUpdate: NoAction, map: "fk_payout_paid_by")
+
+  @@index([smd_closing_id], map: "idx_payout_closing")
+}
+
+/// NOTE: Postgres CHECK constraints on this table are not represented here.
+model smds {
+  smd_id                          String                 @id @default(uuid()) @db.Char(36)
+  owner_user_id                   String?                @db.Char(36)
+  added_by                        String                 @db.Char(36)
+  smd_code                        String                 @db.VarChar(100)
+  title                           String?                @db.VarChar(255)
+  address                         String?                @db.Text
+  purchase_price                  Decimal?               @db.Decimal(12, 2)
+  monthly_payout                  Decimal?               @db.Decimal(12, 2)
+  sell_price                      Decimal?               @db.Decimal(12, 2)
+  status                          String?                @default("active") @db.VarChar(50)
+  is_active                       Boolean?               @default(true)
+  installed_at                    DateTime?              @db.Timestamp(6)
+  created_at                      DateTime               @default(now()) @db.Timestamp(6)
+  updated_at                      DateTime               @default(now()) @db.Timestamp(6)
+  marketer_commissions            marketer_commissions[]
+  smd_closings                    smd_closings[]
+  users_smds_added_byTousers      users                  @relation("smds_added_byTousers", fields: [added_by], references: [user_id], onDelete: NoAction, onUpdate: NoAction, map: "fk_smd_added_by")
+  users_smds_owner_user_idTousers users?                 @relation("smds_owner_user_idTousers", fields: [owner_user_id], references: [user_id], onDelete: NoAction, onUpdate: NoAction, map: "fk_smd_owner")
+
+  @@index([added_by], map: "idx_smds_added_by")
+  @@index([owner_user_id], map: "idx_smds_owner")
+}
+
+model user_roles {
+  user_id String @db.Char(36)
+  role_id String @db.Char(36)
+  roles   roles  @relation(fields: [role_id], references: [role_id], onDelete: Cascade, onUpdate: NoAction)
+  users   users  @relation(fields: [user_id], references: [user_id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@id([user_id, role_id])
+  @@index([role_id], map: "idx_user_roles_role")
+}
+
+/// NOTE: Postgres CHECK constraints on this table are not represented here.
+model users {
+  user_id                               String             @id @default(uuid()) @db.Char(36)
+  email                                 String             @unique @db.VarChar(255)
+  full_name                             String             @db.VarChar(255)
+  password_hash                         String?            @db.VarChar(255)
+  avatar_url                            String?            @db.VarChar(500)
+  role_id                               String             @db.Char(36)
+  last_login_at                         DateTime?          @db.Timestamp(6)
+  is_verified                           Boolean            @default(false)
+  status                                String             @default("active") @db.VarChar(30)
+  created_at                            DateTime           @default(now()) @db.Timestamp(6)
+  updated_at                            DateTime?          @default(now()) @db.Timestamp(6)
+  is_portal_user                        Boolean            @default(true)
+  customers_customers_created_byTousers customers[]        @relation("customers_created_byTousers")
+  customers_customers_user_idTousers    customers[]        @relation("customers_user_idTousers")
+  marketers_marketers_created_byTousers marketers[]        @relation("marketers_created_byTousers")
+  marketers_marketers_user_idTousers    marketers[]        @relation("marketers_user_idTousers")
+  smd_closings                          smd_closings[]
+  smd_rent_payouts                      smd_rent_payouts[]
+  smds_smds_added_byTousers             smds[]             @relation("smds_added_byTousers")
+  smds_smds_owner_user_idTousers        smds[]             @relation("smds_owner_user_idTousers")
+  user_roles                            user_roles[]
+  roles                                 roles              @relation(fields: [role_id], references: [role_id], onUpdate: NoAction, map: "fk_users_role")
+
+  @@index([role_id], map: "idx_users_role")
+}
+
+model smd_deals {
+  deal_id         String         @id @default(uuid()) @db.Char(36)
+  customer_id     String         @db.Char(36)
+  created_by      String         @db.Char(36)
+  total_amount    Decimal?       @db.Decimal(14, 2)
+  status          String?        @default("completed") @db.VarChar(30)
+  created_at      DateTime?      @default(now()) @db.Timestamp(6)
+  updated_at      DateTime?      @default(now()) @db.Timestamp(6)
+  agreement_years Int?           @default(3)
+  smd_closings    smd_closings[]
+}
