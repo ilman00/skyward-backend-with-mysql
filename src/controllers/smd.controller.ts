@@ -121,12 +121,12 @@ export const getSmds = async (req: Request, res: Response) => {
 
     // Data query
     const dataQuery = `
-      SELECT *
-      ${baseQuery}
-      ORDER BY created_at DESC
-      LIMIT ?
-      OFFSET ?
-    `;
+  SELECT *
+  ${baseQuery}
+  ORDER BY CAST(SUBSTRING(smd_code, LOCATE('-', smd_code) + 1) AS UNSIGNED) ASC
+  LIMIT ?
+  OFFSET ?
+`;  
 
     const dataValues = [...values, pageSize, offset];
 
