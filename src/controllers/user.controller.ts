@@ -3,7 +3,7 @@ import { pool } from "../config/db";
 import bcrypt from "bcryptjs";
 
 
-class AppError extends Error {
+export class AppError extends Error {
   constructor(public statusCode: number, message: string) {
     super(message);
   }
