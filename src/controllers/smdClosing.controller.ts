@@ -3,12 +3,16 @@ import { pool } from "../config/db";
 import { RowDataPacket, ResultSetHeader } from "mysql2";
 import { randomUUID } from "crypto";
 
-export const createSmdClosing = async (req: Request, res: Response) => {  
+
+const ALLOWED_PAYMENT_METHODS = ["cash", "bank_transfer", "cheque", "online"] as const;
+type PaymentMethod = typeof ALLOWED_PAYMENT_METHODS[number];
+
+export const createSmdClosing = async (req: Request, res: Response) => {
   const connection = await pool.getConnection();
 
   try {
-    const { customer_id, smds } = req.body;
-    console.log("SMDs: " , smds);
+    const { customer_id, smds, payment_method } = req.body;
+    console.log("SMDs: ", smds);
 
     const closedBy = req.user!.user_id;
     const role = req.user!.role;
@@ -20,6 +24,19 @@ export const createSmdClosing = async (req: Request, res: Response) => {
     if (!customer_id || !Array.isArray(smds) || smds.length === 0) {
       return res.status(400).json({ message: "Invalid payload" });
     }
+
+    const hasUpfrontPayment = smds.some((s: any) => Number(s.amount_paid) > 0);
+
+    if (hasUpfrontPayment) {
+      if (!payment_method || !ALLOWED_PAYMENT_METHODS.includes(payment_method)) {
+        return res.status(400).json({
+          message: `payment_method is required and must be one of: ${ALLOWED_PAYMENT_METHODS.join(", ")}`,
+        });
+      }
+    }
+
+    // ⭐ after validation, narrow the type
+    const validatedPaymentMethod = payment_method as PaymentMethod | undefined;
 
     await connection.beginTransaction();
 
@@ -132,6 +149,34 @@ export const createSmdClosing = async (req: Request, res: Response) => {
       );
 
       insertedClosings.push(smdClosingId);
+
+      // ⭐ NEW → if customer paid something upfront, record it as a real payment
+      if (Number(amount_paid) > 0) {
+        const paymentId = randomUUID();
+
+        await connection.query<ResultSetHeader>(
+          `
+            INSERT INTO smd_closing_payments (
+              payment_id, smd_closing_id, amount, payment_date, payment_method, recorded_by
+              )
+            VALUES (?, ?, ?, NOW(), ?, ?)
+          `,
+          [paymentId, smdClosingId, amount_paid, validatedPaymentMethod, closedBy]
+        );
+
+        const transactionId = randomUUID();
+
+        await connection.query<ResultSetHeader>(
+          `
+            INSERT INTO transactions (
+              transaction_id, type, direction, amount, txn_date,
+              source_table, source_id, smd_closing_id, marketer_id, recorded_by
+            )
+            VALUES (?, 'income_sale', 'in', ?, NOW(), 'smd_closing_payments', ?, ?, NULL, ?)
+          `,
+          [transactionId, amount_paid, paymentId, smdClosingId, closedBy]
+        );
+      }
     }
 
     await connection.commit();

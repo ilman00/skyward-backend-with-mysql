@@ -2,13 +2,14 @@ import { Request, Response } from "express";
 import { pool } from "../config/db";
 import { RowDataPacket, ResultSetHeader } from "mysql2";
 import crypto from "crypto";
+import { ALLOWED_PAYMENT_METHODS, PaymentMethod } from "../constants/paymentMethods"
 
 export const createMonthlyPayout = async (req: Request, res: Response) => {
   const connection = await pool.getConnection();
 
   try {
     // 1. Destructure customer_id and smd_id from the body
-    const { smd_id, customer_id, payout_month, amount } = req.body;
+    const { smd_id, customer_id, payout_month, amount, payment_method } = req.body;
     const paidBy = req.user!.user_id;
     const role = req.user!.role;
 
@@ -19,6 +20,12 @@ export const createMonthlyPayout = async (req: Request, res: Response) => {
     // Updated validation check
     if (!smd_id || !customer_id || !payout_month || !amount) {
       return res.status(400).json({ message: "Missing required fields" });
+    }
+
+    if (!payment_method || !ALLOWED_PAYMENT_METHODS.includes(payment_method)) {
+      return res.status(400).json({
+        message: `payment_method is required and must be one of: ${ALLOWED_PAYMENT_METHODS.join(", ")}`,
+      });
     }
 
     await connection.beginTransaction();
@@ -39,7 +46,8 @@ export const createMonthlyPayout = async (req: Request, res: Response) => {
       [smd_id, customer_id]
     );
 
-    console.log("After Select ", closingRows);
+
+    
 
     if (closingRows.length === 0) {
       // If we find nothing, it means either the ID is wrong or the closing isn't 'active'
@@ -65,17 +73,32 @@ export const createMonthlyPayout = async (req: Request, res: Response) => {
         amount,
         status,
         paid_by,
-        paid_at
+        paid_at,
+        payment_method
       )
-      VALUES (?, ?, ?, ?, 'paid', ?, NOW())
+      VALUES (?, ?, ?, ?, 'paid', ?, NOW(), ?)
       `,
-      [payoutId,  smd_closing_id, payout_month, amount, paidBy]
+      [payoutId,  smd_closing_id, payout_month, amount, paidBy, payment_method]
     );
 
-    console.log("After Insert ");
+
+      // ⭐ NEW → record this payout on the unified ledger
+    const transactionId = crypto.randomUUID();
+
+    await connection.query<ResultSetHeader>(
+      `
+      INSERT INTO transactions (
+        transaction_id, type, direction, amount, txn_date,
+        source_table, source_id, smd_closing_id, marketer_id, recorded_by
+      )
+      VALUES (?, 'rent_payout', 'out', ?, NOW(), 'smd_rent_payouts', ?, ?, NULL, ?)
+      `,
+      [transactionId, amount, payoutId, smd_closing_id, paidBy]
+    );
+
+
     await connection.commit();
 
-    console.log(`Monthly payout created for SMD Closing ID: ${smd_closing_id}`);
     res.status(201).json({ message: "Monthly payout recorded successfully" });
 
   } catch (error: any) {

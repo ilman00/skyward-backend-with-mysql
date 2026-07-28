@@ -161,6 +161,17 @@ export const recordClosingPayment = async (
         ]
       );
 
+      // ⭐ NEW → record this portion of the payment on the unified ledger
+      const transactionId = randomUUID();
+      await connection.query(
+        `INSERT INTO transactions (
+           transaction_id, type, direction, amount, txn_date,
+           source_table, source_id, smd_closing_id, marketer_id, recorded_by
+         )
+         VALUES (?, 'income_sale', 'in', ?, NOW(), 'smd_closing_payments', ?, ?, NULL, ?)`,
+        [transactionId, amountForThisClosing, paymentId, closing.smd_closing_id, recorded_by]
+      );
+
       // 5b. Update amount_paid on the closing
       //     remaining_balance is auto-computed as (sell_price - amount_paid)
       await connection.query(
@@ -170,7 +181,7 @@ export const recordClosingPayment = async (
        updated_at = NOW()
    WHERE smd_closing_id = ?`,
         [amountForThisClosing, amountForThisClosing, closing.smd_closing_id]
-      );``
+      );
 
       // 5c. If fully paid, mark closing as completed
       if (isFullyPaid) {
