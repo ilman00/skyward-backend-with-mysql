@@ -2,6 +2,8 @@ import { Request, Response } from "express";
 import { pool } from "../config/db";
 import { RowDataPacket, ResultSetHeader } from "mysql2";
 import { randomUUID } from "crypto";
+import { notifyTransaction } from "../services/transactionNotificationService";
+import { getCustomerContactInfo } from "../services/customerContactService";
 
 
 const ALLOWED_PAYMENT_METHODS = ["cash", "bank_transfer", "cheque", "online"] as const;
@@ -75,6 +77,7 @@ export const createSmdClosing = async (req: Request, res: Response) => {
     );
 
     const insertedClosings: string[] = [];
+    const paymentsToNotify: Array<{ amount: number; smd_closing_id: string }> = [];
 
     // 2️⃣ Loop each SMD
     for (const smd of smds) {
@@ -176,10 +179,32 @@ export const createSmdClosing = async (req: Request, res: Response) => {
           `,
           [transactionId, amount_paid, paymentId, smdClosingId, closedBy]
         );
+
+        paymentsToNotify.push({ amount: Number(amount_paid), smd_closing_id: smdClosingId });
       }
     }
 
     await connection.commit();
+
+    const contact = await getCustomerContactInfo(customer_id);
+    const customer_name = contact.customer_name ?? undefined;
+    const marketer_name = contact.marketer_name ?? "Not assigned";
+
+        // fire-and-forget — one email per upfront payment in this deal
+    for (const p of paymentsToNotify) {
+      notifyTransaction({
+        type: "income_sale",
+        direction: "in",
+        amount: p.amount,
+        txn_date: new Date(),
+        context: {
+          deal_reference: p.smd_closing_id.slice(0, 8),
+          customer_name,
+          marketer_name: marketer_name ?? "Not assigned",
+          payment_method,
+        },
+      }).catch((err) => console.error("[notifyTransaction] failed:", err));
+    }
 
     res.status(201).json({
       message: "SMD deals closed successfully",

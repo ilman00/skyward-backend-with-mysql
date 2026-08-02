@@ -1,6 +1,8 @@
 import { Request, Response } from "express";
 import { pool } from "../config/db"; // mysql2/promise pool
 import { randomUUID } from "crypto";
+import { notifyTransaction } from "../services/transactionNotificationService";
+import { getCustomerContactInfo } from "../services/customerContactService";
 
 // ─────────────────────────────────────────────
 // Types
@@ -136,6 +138,7 @@ export const recordClosingPayment = async (
     // ── 5. Distribute payment using FIFO ──
     let remainingPayment = amount;
     const breakdown: PaymentBreakdownItem[] = [];
+    const paymentsToNotify: Array<{ amount: number; smd_closing_id: string }> = [];
 
     for (const closing of closings) {
       if (remainingPayment <= 0) break;
@@ -200,10 +203,32 @@ export const recordClosingPayment = async (
         closing_fully_paid: isFullyPaid,
       });
 
+      paymentsToNotify.push({ amount: amountForThisClosing, smd_closing_id: closing.smd_closing_id });
+
       remainingPayment = parseFloat((remainingPayment - amountForThisClosing).toFixed(2));
     }
 
     await connection.commit();
+
+    const contact = await getCustomerContactInfo(customer_id);
+    const customer_name = contact.customer_name ?? undefined;
+    const marketer_name = contact.marketer_name ?? "Not assigned";
+
+    for (const p of paymentsToNotify) {
+      notifyTransaction({
+        type: "income_sale",
+        direction: "in",
+        amount: p.amount,
+        txn_date: new Date(),
+        context: {
+          deal_reference: p.smd_closing_id.slice(0, 8),
+          customer_name,
+          marketer_name: marketer_name ?? "Not assigned",
+          payment_method: payment_method ?? undefined,
+          reference_no: reference_no ?? undefined,
+        },
+      }).catch((err) => console.error("[notifyTransaction] failed:", err));
+    }
 
     // ── 6. Return success response ──
     res.status(200).json({

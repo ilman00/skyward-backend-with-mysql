@@ -3,6 +3,8 @@ import { pool } from "../config/db";
 import { RowDataPacket, ResultSetHeader } from "mysql2";
 import crypto from "crypto";
 import { ALLOWED_PAYMENT_METHODS, PaymentMethod } from "../constants/paymentMethods"
+import { notifyTransaction  } from "../services/transactionNotificationService"
+import { getCustomerContactInfo } from "../services/customerContactService";
 
 export const createMonthlyPayout = async (req: Request, res: Response) => {
   const connection = await pool.getConnection();
@@ -98,6 +100,24 @@ export const createMonthlyPayout = async (req: Request, res: Response) => {
 
 
     await connection.commit();
+    const contact = await getCustomerContactInfo(customer_id);
+    const customer_name = contact.customer_name ?? undefined;
+    const marketer_name = contact.marketer_name ?? "Not assigned";
+
+    notifyTransaction({
+      type: "rent_payout",
+      direction: "out",
+      amount: Number(amount),
+      txn_date: new Date(),
+       context: {
+        deal_reference: smd_closing_id.slice(0, 8),
+        customer_name,
+        marketer_name: marketer_name ?? "Not assigned",
+        payout_month,
+        payment_method,
+      },
+    }).catch((err) => console.error("[notifyTransaction] failed:", err));
+
 
     res.status(201).json({ message: "Monthly payout recorded successfully" });
 

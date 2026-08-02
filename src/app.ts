@@ -23,6 +23,8 @@ import adminDashboardRoutes from "./routes/adminDashboard.routes";
 import reception from "./routes/reception.routes";
 import forgotPasswordRoutes from "./routes/forgotPassword.routes";
 import marketerDetailForAdminDashboard from "./routes/marketerDetailForAdminDashboard.routes";
+import  getTransactionSummary  from "./routes/transactions.routes";
+import notificationReceptientsRoutes from "./routes/notificationRecepients.routes";
 
 dotenv.config();
 
@@ -54,6 +56,8 @@ app.use("/api", staffDashboardRoutes);
 app.use("/api", adminDashboardRoutes);
 app.use("/api/reception", reception);
 app.use("/api", marketerDetailForAdminDashboard);
+app.use("/api", getTransactionSummary);
+app.use("/api", notificationReceptientsRoutes);
 
 app.get("/", (req, res) => {
   res.send("Hello Ilman from Skyward Vision API!");
