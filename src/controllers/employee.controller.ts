@@ -124,14 +124,36 @@ export async function createEmployee(req: Request, res: Response) {
     });
   }
 
-  const { full_name, designation, content, display_order } = parsed.data;
+  const { full_name, designation, content, display_order, slug: requestedSlug } = parsed.data;
   const createdBy = (req as any).user?.user_id ?? null;
 
   let photoUrl: string | null = null;
   let photoPublicId: string | null = null;
 
   try {
-    // Upload photo first — if this fails we bail before touching the DB.
+    // If the client explicitly chose a slug, respect it exactly and fail
+    // loudly on conflict — auto-appending "-2" behind their back would be
+    // confusing when they picked this slug on purpose (e.g. to match a
+    // business card or QR code already being designed).
+    let slug: string;
+    if (requestedSlug) {
+      const [existingRows] = await pool.query(
+        "SELECT employee_id FROM employees WHERE slug = ? LIMIT 1",
+        [requestedSlug]
+      );
+      if ((existingRows as unknown[]).length > 0) {
+        return res.status(409).json({
+          success: false,
+          message: `Slug "${requestedSlug}" is already in use by another employee`,
+        });
+      }
+      slug = requestedSlug;
+    } else {
+      slug = await generateUniqueSlug(pool, full_name);
+    }
+
+    // Upload photo after slug is resolved — if slug conflicts, we bail
+    // before ever touching Cloudinary.
     if (req.file) {
       const uploaded = await uploadBufferToCloudinary(req.file.buffer);
       photoUrl = uploaded.secure_url;
@@ -139,7 +161,6 @@ export async function createEmployee(req: Request, res: Response) {
     }
 
     const employeeId = crypto.randomUUID();
-    const slug = await generateUniqueSlug(pool, full_name);
     const sanitizedContent = sanitizeContent(content);
 
     await pool.query(
