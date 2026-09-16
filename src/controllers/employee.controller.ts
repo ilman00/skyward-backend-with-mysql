@@ -69,7 +69,7 @@ export async function getEmployeeBySlug(req: Request, res: Response) {
   const { slug } = req.params;
   try {
     const [rows] = await pool.query(
-      `SELECT employee_id, slug, full_name, designation, photo_url, content, status
+      `SELECT employee_id, slug, full_name, designation, photo_url, content, status, general_information, employment_details, key_responsibilities, display_order
        FROM employees
        WHERE slug = ?
        LIMIT 1`,
@@ -80,7 +80,7 @@ export async function getEmployeeBySlug(req: Request, res: Response) {
     if (!employee || employee.status !== "active") {
       return res.status(404).json({ success: false, message: "Employee not found" });
     }
-
+    console.log("getEmployeeBySlug:", employee);
     res.json({ success: true, data: employee });
   } catch (err) {
     console.error("getEmployeeBySlug error:", err);
@@ -124,7 +124,10 @@ export async function createEmployee(req: Request, res: Response) {
     });
   }
 
-  const { full_name, designation, content, display_order, slug: requestedSlug } = parsed.data;
+  const {
+    full_name, designation, content, display_order, slug: requestedSlug,
+    general_information, employment_details, key_responsibilities,
+  } = parsed.data;
   const createdBy = (req as any).user?.user_id ?? null;
 
   let photoUrl: string | null = null;
@@ -165,19 +168,17 @@ export async function createEmployee(req: Request, res: Response) {
 
     await pool.query(
       `INSERT INTO employees
-        (employee_id, slug, full_name, designation, photo_url, photo_public_id,
-         content, display_order, status, created_by)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'active', ?)`,
+    (employee_id, slug, full_name, designation, photo_url, photo_public_id,
+     content, general_information, employment_details, key_responsibilities,
+     display_order, status, created_by)
+   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'active', ?)`,
       [
-        employeeId,
-        slug,
-        full_name,
-        designation,
-        photoUrl,
-        photoPublicId,
-        sanitizedContent,
-        display_order,
-        createdBy,
+        employeeId, slug, full_name, designation, photoUrl, photoPublicId,
+        sanitizeContent(content),
+        sanitizeContent(general_information),
+        sanitizeContent(employment_details),
+        sanitizeContent(key_responsibilities),
+        display_order, createdBy,
       ]
     );
 
@@ -263,27 +264,44 @@ export async function updateEmployee(req: Request, res: Response) {
         updates.content !== undefined
           ? sanitizeContent(updates.content)
           : existing.content,
+      general_information:
+        updates.general_information !== undefined
+          ? sanitizeContent(updates.general_information)
+          : existing.general_information,
+      employment_details:
+        updates.employment_details !== undefined
+          ? sanitizeContent(updates.employment_details)
+          : existing.employment_details,
+      key_responsibilities:
+        updates.key_responsibilities !== undefined
+          ? sanitizeContent(updates.key_responsibilities)
+          : existing.key_responsibilities,
       display_order: updates.display_order ?? existing.display_order,
       status: updates.status ?? existing.status,
     };
 
     await pool.query(
-      `UPDATE employees
-       SET slug = ?, full_name = ?, designation = ?, photo_url = ?, photo_public_id = ?,
-           content = ?, display_order = ?, status = ?, updated_at = CURRENT_TIMESTAMP(6)
-       WHERE employee_id = ?`,
-      [
-        nextSlug,
-        nextValues.full_name,
-        nextValues.designation,
-        photoUrl,
-        photoPublicId,
-        nextValues.content,
-        nextValues.display_order,
-        nextValues.status,
-        employee_id,
-      ]
-    );
+  `UPDATE employees
+   SET slug = ?, full_name = ?, designation = ?, photo_url = ?, photo_public_id = ?,
+       content = ?, general_information = ?, employment_details = ?,
+       key_responsibilities = ?, display_order = ?, status = ?,
+       updated_at = CURRENT_TIMESTAMP(6)
+   WHERE employee_id = ?`,
+  [
+    nextSlug,
+    nextValues.full_name,
+    nextValues.designation,
+    photoUrl,
+    photoPublicId,
+    nextValues.content,
+    nextValues.general_information,
+    nextValues.employment_details,
+    nextValues.key_responsibilities,
+    nextValues.display_order,
+    nextValues.status,
+    employee_id,
+  ]
+);
 
     // Only delete the old image after the DB write succeeds, and only
     // if a new one actually replaced it.
@@ -321,5 +339,65 @@ export async function deleteEmployee(req: Request, res: Response) {
   } catch (err) {
     console.error("deleteEmployee error:", err);
     res.status(500).json({ success: false, message: "Failed to delete employee" });
+  }
+}
+
+// ---------------------------------------------------------------------------
+// PATCH /api/employees/:employee_id/reorder  (staff/admin)
+// Body: { new_position: number }  — 1-based, counts hidden employees too
+// ---------------------------------------------------------------------------
+export async function reorderEmployee(req: Request, res: Response) {
+  const { employee_id } = req.params;
+  const newPosition = Number(req.body?.new_position);
+
+  if (!Number.isInteger(newPosition) || newPosition < 1) {
+    return res.status(400).json({
+      success: false,
+      message: "new_position must be a positive integer",
+    });
+  }
+
+  const conn = await pool.getConnection();
+  try {
+    await conn.beginTransaction();
+
+    // Lock every row so two simultaneous reorders can't interleave and
+    // leave the numbering scrambled.
+    const [rows] = await conn.query(
+      `SELECT employee_id FROM employees
+       ORDER BY display_order ASC, full_name ASC
+       FOR UPDATE`
+    );
+    const ids = (rows as any[]).map((r) => r.employee_id as string);
+
+    const currentIndex = ids.indexOf(employee_id as string);
+    if (currentIndex === -1) {
+      await conn.rollback();
+      return res
+        .status(404)
+        .json({ success: false, message: "Employee not found" });
+    }
+
+    // Pull them out, splice them back in at the target slot.
+    ids.splice(currentIndex, 1);
+    const targetIndex = Math.min(newPosition - 1, ids.length);
+    ids.splice(targetIndex, 0, employee_id as string);
+
+    // Renumber 1..n from scratch — guarantees no gaps and no ties.
+    for (let i = 0; i < ids.length; i++) {
+      await conn.query(
+        `UPDATE employees SET display_order = ? WHERE employee_id = ?`,
+        [i + 1, ids[i]]
+      );
+    }
+
+    await conn.commit();
+    res.json({ success: true, message: "Order updated" });
+  } catch (err) {
+    await conn.rollback();
+    console.error("reorderEmployee error:", err);
+    res.status(500).json({ success: false, message: "Failed to reorder" });
+  } finally {
+    conn.release();
   }
 }

@@ -10,6 +10,7 @@ import {
   createEmployee,
   updateEmployee,
   deleteEmployee,
+  reorderEmployee,
 } from "../controllers/employee.controller";
 
 const router = Router();
@@ -38,5 +39,12 @@ router.put(
   updateEmployee
 );
 router.delete("/:employee_id", authenticate, authorize("admin", "staff"), deleteEmployee);
+
+router.patch(
+  "/:employee_id/reorder",
+  authenticate,
+  authorize("admin", "staff"),
+  reorderEmployee
+);
 
 export default router;
